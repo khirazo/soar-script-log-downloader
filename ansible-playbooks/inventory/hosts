@@ -1,0 +1,2 @@
+apphost ansible_host=192.168.65.4 ansible_user=integration
+soar-server ansible_host=192.168.65.7 ansible_user=resadmin
