@@ -1,0 +1,98 @@
+- name: OCP Cases Script Log Downloader
+  hosts: apphost
+  gather_facts: false
+  vars_files:
+    - variables.yml
+    - secrets.yml
+
+  vars:
+    # The following value is given from the SOAR playbook
+    #case_id: 2324
+    
+    # filename to be attached
+    filename: "{{ 'cases-scripting-log-' + now(fmt='%Y-%m-%d-%H%M%S') + '.log' }}"
+    # multipart boundary
+    boundary: "AnsibleFormBoundaryJQH4JY0ZMVYVZB1L"
+
+  tasks:
+    - name: Get Cases App Pod with isc-cases-application name label
+      uri:
+        url: "{{ openshift_api_uri }}/api/v1/namespaces/{{ cp4s_namespcae }}/pods?labelSelector=name=isc-cases-application"
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ openshift_sa_token }}"
+        status_code: 200
+        method: GET
+        return_content: yes
+        validate_certs: "{{ validate_certs }}"
+      register: cases_app_pod
+      until: cases_app_pod.json is defined
+      retries: 2
+      delay: 10
+
+    - name: Get Cases App Pod name
+      no_log: true   
+      set_fact:
+        cases_app_pod_name: "{{ item.metadata.name }}"
+      loop: "{{ cases_app_pod.json['items'] }}"       
+
+    - name: Get Cases App Pod Log from container
+      uri:
+        url: "{{ openshift_api_uri }}/api/v1/namespaces/{{ cp4s_namespcae }}/pods/{{ cases_app_pod_name }}/log?container={{ cases_log_container_name }}"
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ openshift_sa_token }}"
+        status_code: 200
+        method: GET
+        return_content: yes
+        validate_certs: "{{ validate_certs }}"
+      register: cases_app_container_log
+      until: cases_app_container_log.content is defined
+      retries: 2
+      delay: 10
+
+    - name: Set the result
+      no_log: true
+      set_fact:
+        output: "{{ cases_app_container_log.content }}"
+
+    - name: Create a temp file
+      tempfile:
+        state: file
+      register: tempfile_1
+
+    - name: Fill the template
+      template:
+        src: "{{ log_attach_template_path }}"
+        dest: "{{ tempfile_1.path }}"
+
+    - name: Attach a file to a SOAR case
+      uri:
+        url: "{{ soar_server_uri }}/rest/orgs/{{ soar_org_id }}/incidents/{{ case_id }}/attachments"
+        headers:
+          Content-Type: "multipart/form-data; boundary={{ boundary }}"
+        url_username: "{{ soar_api_key_id }}"
+        url_password: "{{ soar_api_key_secret }}"
+        force_basic_auth: true
+        status_code: 200
+        method: POST
+        remote_src: true
+        src: "{{ tempfile_1.path }}"
+        return_content: yes
+        validate_certs: "{{ validate_certs }}"        
+      register: result
+      until: result.msg is defined
+      retries: 2
+      delay: 10
+
+    - name: Remove a temp file
+      file:
+        path: "{{ tempfile_1.path }}"
+        state: absent
+      when: tempfile_1.path is defined
+
+    - name: Return the result
+      debug:
+        var: result.msg

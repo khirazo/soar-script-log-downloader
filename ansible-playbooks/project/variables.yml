@@ -1,0 +1,17 @@
+# Ansible native multipart support requires ansible 2.10
+log_attach_template_path: "multipart.j2"
+
+# CP4S OCP Variables
+openshift_api_uri: "https://your_openshift_api_server:port"
+cp4s_namespcae: "your_cp4s_namespace_name"
+cases_log_container_name: "cases-scripting-log-tailer"
+# CP4S SOAR Variables
+soar_server_uri: "https://cases-rest.your_cp4s_server"
+soar_org_id: 201
+
+# Stand alone RHEL Variables
+soar_script_log_path: "/var/log/resilient-scripting/resilient-scripting.log"
+soar_script_sudo_required: yes
+
+# Common
+validate_certs: false

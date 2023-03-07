@@ -1,0 +1,64 @@
+- name: Stand alone SOAR Script Log Downloader
+  hosts: soar-server
+  become: "{{ soar_script_sudo_required }}"
+  gather_facts: false
+  vars_files:
+    - variables.yml
+    - secrets.yml
+  vars:
+    # The following value is given from the SOAR playbook
+    #case_id: 2324
+    
+    # filename to be attached
+    filename: "{{ 'resilient-scripting-' + now(fmt='%Y-%m-%d-%H%M%S') + '.log' }}"
+    # multipart boundary
+    boundary: "AnsibleFormBoundaryJQH4JY0ZMVYVZB1L"
+
+  tasks:
+    - name: Cat Remote Log
+      shell: "cat {{ soar_script_log_path }}"
+      register: script_log
+
+    - name: Set the result
+      no_log: true
+      set_fact:
+        output: "{{ script_log.stdout }}"
+
+    - name: Create a temp file
+      tempfile:
+        state: file
+      register: tempfile_1
+
+    - name: Fill the template
+      template:
+        src: "{{ log_attach_template_path }}"
+        dest: "{{ tempfile_1.path }}"
+
+    - name: Attach a file to a SOAR case
+      uri:
+        url: "{{ soar_server_uri }}/rest/orgs/{{ soar_org_id }}/incidents/{{ case_id }}/attachments"
+        headers:
+          Content-Type: "multipart/form-data; boundary={{ boundary }}"
+        url_username: "{{ soar_api_key_id }}"
+        url_password: "{{ soar_api_key_secret }}"
+        force_basic_auth: true
+        status_code: 200
+        method: POST
+        remote_src: true
+        src: "{{ tempfile_1.path }}"
+        return_content: yes
+        validate_certs: "{{ validate_certs }}"        
+      register: result
+      until: result.msg is defined
+      retries: 2
+      delay: 10
+
+    - name: Remove a temp file
+      file:
+        path: "{{ tempfile_1.path }}"
+        state: absent
+      when: tempfile_1.path is defined
+
+    - name: Return the result
+      debug:
+        var: result.msg
